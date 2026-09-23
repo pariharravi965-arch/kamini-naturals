@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kamini Naturals</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f5f8f2;color:#243024}
+header{background:#174d2a;color:white;padding:18px;text-align:center;position:sticky;top:0;z-index:5}
+header h1{margin:0;font-size:27px}
+header p{margin:5px 0 0}
+.hero{padding:28px 18px;text-align:center;background:#e3f0df}
+.hero h2{font-size:28px;margin:5px}
+.hero p{margin:10px 0}
+.search{padding:15px}
+.search input{width:100%;padding:13px;border:1px solid #ccc;border-radius:10px;font-size:16px}
+.categories{display:flex;gap:8px;overflow:auto;padding:0 15px 15px}
+.categories button{white-space:nowrap;border:0;padding:9px 13px;border-radius:20px;background:#d6e8d1}
+.products{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;padding:15px}
+.card{background:white;border-radius:14px;padding:14px;box-shadow:0 2px 8px #0001}
+.card .icon{font-size:42px;text-align:center}
+.card h3{margin:8px 0 3px;font-size:17px}
+.card small{color:#666}
+.price{font-weight:bold;font-size:18px;margin:9px 0;color:#174d2a}
+.card button,.cart button{width:100%;border:0;border-radius:9px;padding:10px;background:#174d2a;color:white;font-size:15px}
+.cart{margin:15px;padding:16px;background:white;border-radius:14px;box-shadow:0 2px 8px #0001}
+.cart h2{margin-top:0}
+.cart-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eee}
+.qty button{width:auto;padding:5px 9px;margin:2px}
+.whatsapp{background:#128c45!important;margin-top:10px}
+footer{text-align:center;padding:25px;background:#173b23;color:white;margin-top:20px}
+@media(min-width:700px){.products{grid-template-columns:repeat(4,1fr)}}
+</style>
+</head>
+
+<body>
+
+<header>
+<h1>🌿 Kamini Naturals</h1>
+<p>Herbal & Natural Products</p>
+</header>
+
+<section class="hero">
+<h2>प्राकृतिक उत्पाद, सरल खरीदारी</h2>
+<p>Herbal • Natural • Traditional Products</p>
+</section>
+
+<div class="search">
+<input id="search" type="text" placeholder="🔍 Product search करें..." oninput="render()">
+</div>
+
+<div class="categories">
+<button onclick="filterCat('All')">सभी</button>
+<button onclick="filterCat('Leaves')">पत्तियाँ</button>
+<button onclick="filterCat('Barks')">छाल</button>
+<button onclick="filterCat('Fruits')">फल</button>
+<button onclick="filterCat('Daatun')">दातून</button>
+<button onclick="filterCat('Roots')">जड़/तना</button>
+</div>
+
+<div id="products" class="products"></div>
+
+<div class="cart">
+<h2>🛒 Cart</h2>
+<div id="cartItems">Cart खाली है</div>
+<h3 id="total">Total: ₹0</h3>
+<button class="whatsapp" onclick="orderWhatsApp()">📱 WhatsApp पर Order करें</button>
+</div>
+
+<footer>
+<strong>Kamini Naturals</strong><br>
+Herbal & Natural Products<br><br>
+WhatsApp: 7470825458
+</footer>
+
+<script>
+const products=[
+{id:1,name:"Neem Daatun",hi:"नीम दातून",sci:"Azadirachta indica",cat:"Daatun",pack:"Pack",price:99,icon:"🌿"},
+{id:2,name:"Neem Leaves",hi:"नीम पत्ती",sci:"Azadirachta indica",cat:"Leaves",pack:"500 g",price:0,icon:"🍃"},
+{id:3,name:"Neem Bark",hi:"नीम छाल",sci:"Azadirachta indica",cat:"Barks",pack:"500 g",price:0,icon:"🌿"},
+{id:4,name:"Giloy Stem",hi:"गिलोय तना",sci:"Tinospora cordifolia",cat:"Roots",pack:"500 g",price:0,icon:"🌱"},
+{id:5,name:"Amla",hi:"आंवला",sci:"Phyllanthus emblica",cat:"Fruits",pack:"500 g",price:0,icon:"🟢"},
+{id:6,name:"Harad",hi:"हरड़",sci:"Terminalia chebula",cat:"Fruits",pack:"500 g",price:0,icon:"🟤"},
+{id:7,name:"Behada",hi:"बहेड़ा",sci:"Terminalia bellirica",cat:"Fruits",pack:"500 g",price:0,icon:"🟤"},
+{id:8,name:"Arjun Bark",hi:"अर्जुन छाल",sci:"Terminalia arjuna",cat:"Barks",pack:"500 g",price:0,icon:"🌳"},
+{id:9,name:"Moringa Leaves",hi:"सहजन पत्ती",sci:"Moringa oleifera",cat:"Leaves",pack:"500 g",price:0,icon:"🍃"},
+{id:10,name:"Mehendi",hi:"मेहंदी",sci:"Lawsonia inermis",cat:"Leaves",pack:"500 g",price:0,icon:"🌿"},
+{id:11,name:"Babool Bark",hi:"बबूल छाल",sci:"Vachellia nilotica",cat:"Barks",pack:"500 g",price:0,icon:"🌳"},
+{id:12,name:"Palash Bark",hi:"पलाश छाल",sci:"Butea monosperma",cat:"Barks",pack:"500 g",price:0,icon:"🌳"}
+];
+
+let category="All";
+let cart=JSON.parse(localStorage.getItem("kaminiCart")||"{}");
+
+function filterCat(c){category=c;render()}
+
+function render(){
+const q=document.getElementById("search").value.toLowerCase();
+const list=products.filter(p=>
+(category==="All"||p.cat===category)&&
+(p.name.toLowerCase().includes(q)||p.hi.includes(q))
+);
+
+document.getElementById("products").innerHTML=list.map(p=>`
+<div class="card">
+<div class="icon">${p.icon}</div>
+<h3>${p.name}</h3>
+<div>${p.hi}</div>
+<small>${p.sci}</small><br>
+<small>${p.pack}</small>
+<div class="price">${p.price?`₹${p.price}`:"Price जल्द उपलब्ध"}</div>
+<button onclick="add(${p.id})">🛒 Add to Cart</button>
+</div>`).join("");
+
+showCart();
+}
+
+function add(id){
+if(!products.find(p=>p.id===id).price){
+alert("इस product की price अभी उपलब्ध नहीं है।");
+return;
+}
+cart[id]=(cart[id]||0)+1;
+save();
+}
+
+function change(id,n){
+cart[id]=(cart[id]||0)+n;
+if(cart[id]<=0)delete cart[id];
+save();
+}
+
+function save(){
+localStorage.setItem("kaminiCart",JSON.stringify(cart));
+showCart();
+}
+
+function showCart(){
+let ids=Object.keys(cart);
+if(!ids.length){
+document.getElementById("cartItems").innerHTML="Cart खाली है";
+document.getElementById("total").innerText="Total: ₹0";
+return;
+}
+
+let total=0;
+document.getElementById("cartItems").innerHTML=ids.map(id=>{
+let p=products.find(x=>x.id==id);
+let qty=cart[id];
+total+=p.price*qty;
+return `<div class="cart-item">
+<span>${p.name} × ${qty}</span>
+<span class="qty">
+<button onclick="change(${p.id},-1)">−</button>
+<button onclick="change(${p.id},1)">+</button>
+</span></div>`;
+}).join("");
+
+document.getElementById("total").innerText="Total: ₹"+total;
+}
+
+function orderWhatsApp(){
+let ids=Object.keys(cart);
+if(!ids.length){alert("पहले product Cart में डालें।");return}
+
+let total=0;
+let msg="Namaste Kamini Naturals,%0A%0AMera order:%0A";
+
+ids.forEach(id=>{
+let p=products.find(x=>x.id==id);
+let qty=cart[id];
+total+=p.price*qty;
+msg+=`${p.name} × ${qty} = ₹${p.price*qty}%0A`;
+});
+
+msg+=`%0ATotal: ₹${total}%0A%0AName:%0AAddress:%0APincode:%0A`;
+window.open("https://wa.me/917470825458?text="+msg,"_blank");
+}
+
+render();
+</script>
+
+</body>
+</html>
