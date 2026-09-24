@@ -1,0 +1,9 @@
+{
+  "name": "Kamini Naturals",
+  "short_name": "Kamini Naturals",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f8f1",
+  "theme_color": "#145c37",
+  "description": "Kamini Naturals Herbal & Natural Products"
+}
