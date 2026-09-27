@@ -8,12 +8,20 @@ const PORT = Number(process.env.PORT || 8080);
 const ROOT = __dirname;
 const db = new Database(path.join(ROOT, 'data', 'kamini_naturals.sqlite'));
 db.pragma('journal_mode = WAL');
+for (const col of [
+  ['cashfree_order_id','TEXT'],
+  ['payment_session_id','TEXT']
+]) {
+  try { db.exec(`ALTER TABLE orders ADD COLUMN ${col[0]} ${col[1]}`); } catch (_) {}
+}
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS orders (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  order_id TEXT UNIQUE NOT NULL,
  razorpay_order_id TEXT,
+ cashfree_order_id TEXT,
+ payment_session_id TEXT,
  payment_id TEXT,
  payment_signature TEXT,
  name TEXT NOT NULL,
@@ -90,61 +98,228 @@ function auth(req,res,next){
  next();
 }
 
-app.get('/api/config',(req,res)=>res.json({razorpayKeyId:process.env.RAZORPAY_KEY_ID||null, shippingFlat:Number(process.env.SHIPPING_FLAT||0), paymentEnabled:!!(process.env.RAZORPAY_KEY_ID&&process.env.RAZORPAY_KEY_SECRET)}));
+app.get('/api/config',(req,res)=>res.json({
+  cashfreeMode: process.env.CASHFREE_ENV === 'production' ? 'production' : 'sandbox',
+  shippingFlat:Number(process.env.SHIPPING_FLAT||0),
+  paymentEnabled:!!(process.env.CASHFREE_CLIENT_ID&&process.env.CASHFREE_CLIENT_SECRET)
+}));
+
 app.get('/api/products',(req,res)=>res.json(products));
 app.get('/api/health',(req,res)=>res.json({ok:true,service:'kamini-naturals',time:now()}));
 
 app.post('/api/orders/quote',(req,res)=>{
- const {total,items}=totalFor(req.body.items); const shipping=Math.max(0,Number(process.env.SHIPPING_FLAT||0));
- res.json({items,product_total:total,shipping,grand_total:total+shipping,currency:'INR'});
+  const {total,items}=totalFor(req.body.items);
+  const shipping=Math.max(0,Number(process.env.SHIPPING_FLAT||0));
+  res.json({items,product_total:total,shipping,grand_total:total+shipping,currency:'INR'});
 });
+
+function cashfreeBase(){
+  return process.env.CASHFREE_ENV === 'production'
+    ? 'https://api.cashfree.com/pg'
+    : 'https://sandbox.cashfree.com/pg';
+}
+
+function cashfreeHeaders(){
+  return {
+    'x-client-id': process.env.CASHFREE_CLIENT_ID || '',
+    'x-client-secret': process.env.CASHFREE_CLIENT_SECRET || '',
+    'x-api-version': '2025-01-01',
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  };
+}
+
+async function cashfreeGetPayments(orderId){
+  const r=await fetch(`${cashfreeBase()}/orders/${encodeURIComponent(orderId)}/payments`,{
+    method:'GET',
+    headers:cashfreeHeaders()
+  });
+  const body=await r.json().catch(()=>null);
+  if(!r.ok) throw new Error(body?.message || 'Cashfree payment status check failed');
+  return Array.isArray(body) ? body : [];
+}
 
 app.post('/api/orders/create',sensitiveRate,async(req,res)=>{
- try{
-  const name=clean(req.body.name,120), mobile=clean(req.body.mobile,20), address=clean(req.body.address,1000), pin=clean(req.body.pin,6), paymentMethod=clean(req.body.payment_method,80);
-  if(!name||!validMobile(mobile)||!address||!validPin(pin)) return res.status(400).json({error:'Invalid customer details'});
-  if(!['UPI','CARD','NETBANKING'].includes(paymentMethod)) return res.status(400).json({error:'Only online payment methods are enabled'});
-  const q=totalFor(req.body.items); if(!q.items.length) return res.status(400).json({error:'Cart is empty'});
-  const shipping=Math.max(0,Number(process.env.SHIPPING_FLAT||0)); const grand=q.total+shipping; const orderId=orderCode();
-  let razor=null;
-  if(process.env.RAZORPAY_KEY_ID&&process.env.RAZORPAY_KEY_SECRET){
-   const auth=Buffer.from(process.env.RAZORPAY_KEY_ID+':'+process.env.RAZORPAY_KEY_SECRET).toString('base64');
-   const r=await fetch('https://api.razorpay.com/v1/orders',{method:'POST',headers:{'Authorization':'Basic '+auth,'Content-Type':'application/json'},body:JSON.stringify({amount:Math.round(grand*100),currency:'INR',receipt:orderId,notes:{customer_name:name}})});
-   if(!r.ok) return res.status(502).json({error:'Payment gateway order creation failed'});
-   razor=await r.json();
+  try{
+    const name=clean(req.body.name,120);
+    const mobile=clean(req.body.mobile,20);
+    const address=clean(req.body.address,1000);
+    const pin=clean(req.body.pin,6);
+    const paymentMethod=clean(req.body.payment_method,80);
+
+    if(!name||!validMobile(mobile)||!address||!validPin(pin))
+      return res.status(400).json({error:'Invalid customer details'});
+
+    if(!['UPI','CARD','NETBANKING'].includes(paymentMethod))
+      return res.status(400).json({error:'Only online payment methods are enabled'});
+
+    const q=totalFor(req.body.items);
+    if(!q.items.length) return res.status(400).json({error:'Cart is empty'});
+
+    const shipping=Math.max(0,Number(process.env.SHIPPING_FLAT||0));
+    const grand=q.total+shipping;
+    const orderId=orderCode();
+
+    if(!process.env.CASHFREE_CLIENT_ID || !process.env.CASHFREE_CLIENT_SECRET)
+      return res.status(503).json({error:'Payment gateway is not configured yet'});
+
+    const siteUrl=(process.env.SITE_URL||'https://kamininaturals.shop').replace(/\/$/,'');
+    const apiBase=(process.env.API_BASE_URL||'').replace(/\/$/,'');
+    const notifyUrl=apiBase ? `${apiBase}/api/payments/webhook` : undefined;
+
+    const payload={
+      order_id: orderId,
+      order_amount: Number(grand.toFixed(2)),
+      order_currency: 'INR',
+      customer_details:{
+        customer_id: orderId,
+        customer_name: name,
+        customer_phone: mobile
+      },
+      order_meta:{
+        return_url: `${siteUrl}/?payment=return&order_id={order_id}`
+      },
+      order_note: `Kamini Naturals order ${orderId}`
+    };
+    if(notifyUrl) payload.order_meta.notify_url=notifyUrl;
+
+    const r=await fetch(`${cashfreeBase()}/orders`,{
+      method:'POST',
+      headers:cashfreeHeaders(),
+      body:JSON.stringify(payload)
+    });
+    const cf=await r.json().catch(()=>null);
+
+    if(!r.ok || !cf?.payment_session_id){
+      console.error('Cashfree create order:',r.status,cf);
+      return res.status(502).json({error:cf?.message||'Payment gateway order creation failed'});
+    }
+
+    const t=now();
+    db.prepare(`
+      INSERT INTO orders(
+        order_id,cashfree_order_id,payment_session_id,name,mobile,address,pin,
+        items_json,product_total,shipping,grand_total,payment_method,
+        payment_status,order_status,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      orderId,cf.order_id||orderId,cf.payment_session_id,name,mobile,address,pin,
+      JSON.stringify(q.items),q.total,shipping,grand,paymentMethod,
+      'created','PLACED',t,t
+    );
+
+    res.json({
+      orderId,
+      amount:grand,
+      currency:'INR',
+      paymentSessionId:cf.payment_session_id,
+      cashfreeMode:process.env.CASHFREE_ENV === 'production' ? 'production' : 'sandbox',
+      items:q.items,
+      shipping
+    });
+  }catch(e){
+    console.error('Order creation failed',e);
+    res.status(500).json({error:'Order creation failed'});
   }
-  const t=now();
-  db.prepare(`INSERT INTO orders(order_id,razorpay_order_id,name,mobile,address,pin,items_json,product_total,shipping,grand_total,payment_method,payment_status,order_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(orderId,razor?.id||null,name,mobile,address,pin,JSON.stringify(q.items),q.total,shipping,grand,paymentMethod,razor?'created':'gateway_not_configured','PLACED',t,t);
-  res.json({orderId,amount:grand,currency:'INR',razorpayOrderId:razor?.id||null,razorpayKeyId:process.env.RAZORPAY_KEY_ID||null,items:q.items,shipping});
- }catch(e){console.error('Order creation failed',e);res.status(500).json({error:'Order creation failed'})}
 });
 
-app.post('/api/payments/verify',sensitiveRate,(req,res)=>{
- const {orderId,razorpay_order_id,razorpay_payment_id,razorpay_signature}=req.body;
- if(!orderId||!razorpay_order_id||!razorpay_payment_id||!razorpay_signature) return res.status(400).json({error:'Missing payment fields'});
- const row=db.prepare('SELECT * FROM orders WHERE order_id=?').get(orderId); if(!row) return res.status(404).json({error:'Order not found'});
- if(!process.env.RAZORPAY_KEY_SECRET || row.razorpay_order_id!==razorpay_order_id) return res.status(400).json({error:'Payment verification failed'});
- const expected=crypto.createHmac('sha256',process.env.RAZORPAY_KEY_SECRET).update(razorpay_order_id+'|'+razorpay_payment_id).digest('hex');
- const expectedBuf=Buffer.from(expected,'utf8'), receivedBuf=Buffer.from(String(razorpay_signature),'utf8');
- if(expectedBuf.length!==receivedBuf.length || !crypto.timingSafeEqual(expectedBuf,receivedBuf)) return res.status(400).json({error:'Payment signature verification failed'});
- db.prepare('UPDATE orders SET payment_id=?,payment_signature=?,payment_status=?,order_status=?,updated_at=? WHERE order_id=?').run(razorpay_payment_id,razorpay_signature,'paid','PAID',now(),orderId);
- res.json({ok:true,orderId});
+app.get('/api/payments/status/:orderId',sensitiveRate,async(req,res)=>{
+  try{
+    const orderId=clean(req.params.orderId,50);
+    const row=db.prepare('SELECT * FROM orders WHERE order_id=?').get(orderId);
+    if(!row) return res.status(404).json({error:'Order not found'});
+
+    const payments=await cashfreeGetPayments(row.cashfree_order_id||row.order_id);
+    const paid=payments.find(p=>p.payment_status==='SUCCESS');
+    const pending=payments.find(p=>p.payment_status==='PENDING');
+
+    if(paid){
+      db.prepare(`
+        UPDATE orders SET payment_id=?,payment_status=?,order_status=?,updated_at=?
+        WHERE order_id=?
+      `).run(paid.cf_payment_id||paid.payment_id||null,'paid','PAID',now(),orderId);
+      return res.json({ok:true,orderId,paymentStatus:'PAID',paymentId:paid.cf_payment_id||paid.payment_id||null});
+    }
+
+    const status=pending?'PENDING':'FAILED';
+    db.prepare('UPDATE orders SET payment_status=?,updated_at=? WHERE order_id=?')
+      .run(status.toLowerCase(),now(),orderId);
+
+    res.json({ok:true,orderId,paymentStatus:status});
+  }catch(e){
+    console.error('Payment status check failed',e);
+    res.status(502).json({error:'Unable to verify payment status'});
+  }
+});
+
+app.post('/api/payments/verify',sensitiveRate,async(req,res)=>{
+  try{
+    const orderId=clean(req.body.orderId,50);
+    if(!orderId) return res.status(400).json({error:'Missing order ID'});
+
+    const row=db.prepare('SELECT * FROM orders WHERE order_id=?').get(orderId);
+    if(!row) return res.status(404).json({error:'Order not found'});
+
+    const payments=await cashfreeGetPayments(row.cashfree_order_id||row.order_id);
+    const paid=payments.find(p=>p.payment_status==='SUCCESS');
+
+    if(!paid) return res.status(400).json({error:'Payment is not successful yet'});
+
+    const paymentId=paid.cf_payment_id||paid.payment_id||null;
+    db.prepare(`
+      UPDATE orders SET payment_id=?,payment_status=?,order_status=?,updated_at=?
+      WHERE order_id=?
+    `).run(paymentId,'paid','PAID',now(),orderId);
+
+    res.json({ok:true,orderId,paymentId});
+  }catch(e){
+    console.error('Payment verification failed',e);
+    res.status(502).json({error:'Payment verification failed'});
+  }
 });
 
 app.post('/api/payments/webhook',sensitiveRate,(req,res)=>{
- const secret=process.env.RAZORPAY_WEBHOOK_SECRET; if(!secret) return res.status(503).end();
- const signature=String(req.headers['x-razorpay-signature']||''); const raw=Buffer.isBuffer(req.body)?req.body:Buffer.from('');
- const expected=crypto.createHmac('sha256',secret).update(raw).digest('hex');
- const expectedBuf=Buffer.from(expected,'utf8'), receivedBuf=Buffer.from(signature,'utf8');
- if(!signature||expectedBuf.length!==receivedBuf.length||!crypto.timingSafeEqual(expectedBuf,receivedBuf)) return res.status(400).end();
- let body; try{body=JSON.parse(raw.toString('utf8'))}catch{return res.status(400).end()}
- const p=body.payload||{}; const entity=p.payment?.entity; const ro=p.order?.entity;
- const razorOrderId=entity?.order_id||ro?.id; const paymentId=entity?.id;
- if(razorOrderId){
-  const status=body.event==='payment.captured'||body.event==='order.paid'?'paid':'updated';
-  db.prepare('UPDATE orders SET payment_id=COALESCE(?,payment_id),payment_status=?,updated_at=? WHERE razorpay_order_id=?').run(paymentId,status,now(),razorOrderId);
- }
- res.json({ok:true});
+  try{
+    const secret=process.env.CASHFREE_CLIENT_SECRET;
+    if(!secret) return res.status(503).end();
+
+    const signature=String(req.headers['x-webhook-signature']||'');
+    const timestamp=String(req.headers['x-webhook-timestamp']||'');
+    const raw=Buffer.isBuffer(req.body)?req.body:Buffer.from('');
+
+    if(!signature||!timestamp||!raw.length) return res.status(400).end();
+
+    const expected=crypto.createHmac('sha256',secret)
+      .update(timestamp+raw.toString('utf8'))
+      .digest('base64');
+
+    const a=Buffer.from(expected,'utf8'), b=Buffer.from(signature,'utf8');
+    if(a.length!==b.length || !crypto.timingSafeEqual(a,b)) return res.status(400).end();
+
+    const body=JSON.parse(raw.toString('utf8'));
+    const orderId=body?.data?.order?.order_id;
+    const payment=body?.data?.payment;
+    const paymentStatus=payment?.payment_status;
+
+    if(orderId){
+      if(paymentStatus==='SUCCESS'){
+        db.prepare(`
+          UPDATE orders SET payment_id=COALESCE(?,payment_id),
+          payment_status='paid',order_status='PAID',updated_at=?
+          WHERE order_id=?
+        `).run(payment?.cf_payment_id||null,now(),orderId);
+      }else if(paymentStatus){
+        db.prepare(`
+          UPDATE orders SET payment_status=?,updated_at=? WHERE order_id=?
+        `).run(String(paymentStatus).toLowerCase(),now(),orderId);
+      }
+    }
+
+    res.json({ok:true});
+  }catch(e){
+    console.error('Cashfree webhook failed',e);
+    res.status(400).end();
+  }
 });
 
 app.get('/api/orders/track/:id',sensitiveRate,(req,res)=>{const r=db.prepare('SELECT order_id,product_total,shipping,grand_total,payment_method,payment_status,order_status,tracking_number,courier,created_at,updated_at,items_json FROM orders WHERE order_id=?').get(clean(req.params.id,50)); if(!r)return res.status(404).json({error:'Order not found'}); r.items=JSON.parse(r.items_json); delete r.items_json; res.json(r)});
