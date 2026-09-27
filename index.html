@@ -67,7 +67,7 @@ async function createOrder(e){
   el.payBtn.textContent='Creating order…';
   el.orderMsg.innerHTML='';
   try{
-    const r=await fetch('/api/orders/create',{
+    const r=await fetch(API_BASE+'/api/orders/create',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
@@ -83,6 +83,7 @@ async function createOrder(e){
     if(!r.ok)throw Error(d.error||'Order failed');
     if(!d.paymentSessionId)throw Error('Payment session नहीं मिला');
 
+    const API_BASE='https://kamini-naturals-1.onrender.com';
     const cashfree=Cashfree({mode:d.cashfreeMode||'sandbox'});
     const result=await cashfree.checkout({
       paymentSessionId:d.paymentSessionId,
@@ -95,7 +96,7 @@ async function createOrder(e){
 
     // The browser callback/redirect is not treated as proof of payment.
     // Backend verification is required.
-    const v=await fetch('/api/payments/verify',{
+    const v=await fetch(API_BASE+'/api/payments/verify',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({orderId:d.orderId})
@@ -115,14 +116,14 @@ async function createOrder(e){
     el.payBtn.textContent='Continue to Payment';
   }
 }
-async function trackOrder(){const id=el.trackId.value.trim();if(!id)return;el.trackResult.innerHTML='Loading…';const r=await fetch('/api/orders/track/'+encodeURIComponent(id));const d=await r.json();if(!r.ok){el.trackResult.innerHTML='<div class="notice">Order नहीं मिला.</div>';return}el.trackResult.innerHTML=`<div class="info"><h3>${d.order_id}</h3><p>Payment: <b>${d.payment_status}</b> • Order: <b>${d.order_status}</b></p><p>Amount: <b>${formatINR(d.grand_total)}</b> • Courier: ${d.courier||'Not assigned'} • Tracking: ${d.tracking_number||'Not assigned'}</p><div class="pills">${['PLACED','PAID','PROCESSING','PACKED','SHIPPED','DELIVERED'].map(x=>`<span class="pill" style="${x===d.order_status?'font-weight:900;background:#dcefdc;color:var(--g)':''}">${x}</span>`).join('')}</div><p>Created: ${new Date(d.created_at).toLocaleString('en-IN')}</p></div>`}
+async function trackOrder(){const id=el.trackId.value.trim();if(!id)return;el.trackResult.innerHTML='Loading…';const r=await fetch(API_BASE+'/api/orders/track/'+encodeURIComponent(id));const d=await r.json();if(!r.ok){el.trackResult.innerHTML='<div class="notice">Order नहीं मिला.</div>';return}el.trackResult.innerHTML=`<div class="info"><h3>${d.order_id}</h3><p>Payment: <b>${d.payment_status}</b> • Order: <b>${d.order_status}</b></p><p>Amount: <b>${formatINR(d.grand_total)}</b> • Courier: ${d.courier||'Not assigned'} • Tracking: ${d.tracking_number||'Not assigned'}</p><div class="pills">${['PLACED','PAID','PROCESSING','PACKED','SHIPPED','DELIVERED'].map(x=>`<span class="pill" style="${x===d.order_status?'font-weight:900;background:#dcefdc;color:var(--g)':''}">${x}</span>`).join('')}</div><p>Created: ${new Date(d.created_at).toLocaleString('en-IN')}</p></div>`}
 renderChips();render();save();
 (async function(){
   const params=new URLSearchParams(location.search);
   const returnedOrder=params.get('order_id');
   if(params.get('payment')==='return' && returnedOrder){
     try{
-      const r=await fetch('/api/payments/verify',{
+      const r=await fetch(API_BASE+'/api/payments/verify',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({orderId:returnedOrder})

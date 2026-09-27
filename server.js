@@ -5,6 +5,18 @@ const fs = require('fs');
 const Database = require('better-sqlite3');
 
 const app = express();
+
+app.use((req,res,next)=>{
+  const origin = req.headers.origin;
+  if (origin === 'https://kamininaturals.shop' || origin === 'https://www.kamininaturals.shop') {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 const PORT = Number(process.env.PORT || 8080);
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
