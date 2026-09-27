@@ -1,12 +1,15 @@
 const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('fs');
 const Database = require('better-sqlite3');
 
 const app = express();
 const PORT = Number(process.env.PORT || 8080);
 const ROOT = __dirname;
-const db = new Database(path.join(ROOT, 'data', 'kamini_naturals.sqlite'));
+const DATA_DIR = path.join(ROOT, 'data');
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const db = new Database(path.join(DATA_DIR, 'kamini_naturals.sqlite'));
 db.pragma('journal_mode = WAL');
 for (const col of [
   ['cashfree_order_id','TEXT'],
