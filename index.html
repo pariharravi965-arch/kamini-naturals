@@ -23,6 +23,7 @@
 <div class="drawer" id="drawer" onclick="if(event.target===this)closeCart()"><aside class="panel"><button class="close" onclick="closeCart()">✕</button><h2>🛒 Cart</h2><div id="items"></div><div id="summary"></div></aside></div>
 <div class="modal" id="checkout" onclick="if(event.target===this)closeCheckout()"><div class="box"><button class="close" onclick="closeCheckout()">✕</button><h2>Secure Website Checkout</h2><div class="notice">COD उपलब्ध नहीं है. Online payment में UPI (जहाँ supported हो), cards और net banking payment gateway के जरिए उपलब्ध होंगे. Gateway production keys के बिना payment button live नहीं होगा.</div><form id="form" onsubmit="createOrder(event)"><div class="form"><div class="field"><label>Name *</label><input id="name" required></div><div class="field"><label>Mobile *</label><input id="mobile" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required></div><div class="field full"><label>Full Address *</label><textarea id="address" rows="3" required></textarea></div><div class="field"><label>PIN *</label><input id="pin" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></div><div class="field"><label>Payment *</label><select id="pay" required><option value="">Select</option><option value="UPI">UPI — Google Pay / PhonePe / Paytm where supported</option><option value="CARD">Debit / Credit Card</option><option value="NETBANKING">Net Banking</option></select></div></div><button id="payBtn" class="btn primary" style="width:100%">Continue to Payment</button></form><div id="orderMsg"></div></div></div>
 <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script><script>
+const API_BASE='https://kamini-naturals-1.onrender.com';
 const products=[
 ['neem-daatun','Neem Daatun','नीम दातुन','Azadirachta indica',399,519,'दातुन','01_Neem_Daatun.jpg'],['palash-bark','Palash Bark','पलाश छाल','Butea monosperma',599,778,'छाल','02_Palash_Bark.jpg'],['babool-bark','Babool Bark','बबूल छाल','Vachellia nilotica',599,778,'छाल','03_Babool_Bark.jpg'],['neem-bark','Neem Bark','नीम छाल','Azadirachta indica',549,714,'छाल','04_Neem_Bark.jpg'],['neem-leaves','Neem Leaves','नीम पत्ती','Azadirachta indica',499,649,'पत्तियाँ','05_Neem_Leaves.jpg'],['mehendi','Mehendi','मेहंदी','Lawsonia inermis',449,583,'पत्तियाँ','06_Mehendi.jpg'],['giloy-stem','Giloy Stem','गिलोय तना','Tinospora cordifolia',599,778,'जड़/तना','07_Giloy_Stem.jpg'],['amla','Amla','आंवला','Phyllanthus emblica',499,649,'फल','08_Amla.jpg'],['harad','Harad','हरड़','Terminalia chebula',499,649,'फल','09_Harad.jpg'],['moringa-leaves','Moringa Leaves','सहजना पत्ती','Moringa oleifera',599,778,'पत्तियाँ','10_Moringa_Leaves.jpg'],['behada','Behada','बहेड़ा','Terminalia bellirica',499,649,'फल','11_Behada.jpg'],['arjun-bark','Arjun Bark','अर्जुन छाल','Terminalia arjuna',699,908,'छाल','12_Arjun_Bark.jpg']
 ].map(x=>({id:x[0],en:x[1],hi:x[2],sci:x[3],price:x[4],mrp:x[5],cat:x[6],img:'assets/'+x[7]}));
@@ -83,7 +84,7 @@ async function createOrder(e){
     if(!r.ok)throw Error(d.error||'Order failed');
     if(!d.paymentSessionId)throw Error('Payment session नहीं मिला');
 
-    const API_BASE='https://kamini-naturals-1.onrender.com';
+    
     const cashfree=Cashfree({mode:d.cashfreeMode||'sandbox'});
     const result=await cashfree.checkout({
       paymentSessionId:d.paymentSessionId,
