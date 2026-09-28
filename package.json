@@ -4,10 +4,16 @@
   "private": true,
   "description": "Kamini Naturals ecommerce starter with Razorpay-ready payments, orders, SQLite and admin tools.",
   "main": "server.js",
-  "scripts": {"start":"node server.js"},
-  "engines": {"node": ">=18"},
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "pg": "^8.23.0"
   }
 }

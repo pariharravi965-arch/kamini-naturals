@@ -1,0 +1,9 @@
+node_modules/
+*.sqlite
+*.sqlite-*
+*.backup
+*.backup.*
+.env
+index.html.razorpay-backup
+server.js.razorpay-backup
+server.js.sqlite-backup
