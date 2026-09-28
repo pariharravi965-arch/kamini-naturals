@@ -7,3 +7,4 @@ node_modules/
 index.html.razorpay-backup
 server.js.razorpay-backup
 server.js.sqlite-backup
+public/index.html.before-cashfree-sync
